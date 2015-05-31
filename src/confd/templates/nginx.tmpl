@@ -56,84 +56,92 @@ http {
 	include /etc/nginx/conf.d/*.conf;
 
 	{{range $spec := getvs "/registry/services/specs/*/*"}}
-	{{$data := json $spec}}
-	{{ if $data.annotations.kubernetesReverseproxy }}
-	{{$p := json $data.annotations.kubernetesReverseproxy }}
-	{{range $proxy := $p.hosts}}
-	{{if $proxy.host }}
-	server {
+		{{$data := json $spec}}
 
-		{{if $proxy.port }} listen {{$proxy.port}}; {{end}}
-		server_name {{$proxy.host}};
+		{{ if $data.annotations.kubernetesReverseproxy }}
+			{{$reverseProxy := json $data.annotations.kubernetesReverseproxy }}
 
-		{{if $proxy.ssl   }}
-		ssl_certificate           /etc/nginx/ssl/{{$proxy.sslCrt}};
-		ssl_certificate_key       /etc/nginx/ssl/{{$proxy.sslKey}};
+			{{range $host := $reverseProxy.hosts}}
 
-		ssl on;
-		ssl_session_cache  builtin:1000  shared:SSL:10m;
-		ssl_protocols  TLSv1 TLSv1.1 TLSv1.2;
-		ssl_ciphers HIGH:!aNULL:!eNULL:!EXPORT:!CAMELLIA:!DES:!MD5:!PSK:!RC4;
-		ssl_prefer_server_ciphers on;
-		{{ end }}
+				{{if $host.host }}
+					server {
 
-		{{if $proxy.path }}
-		{{range $path := $proxy.path}}
-		location {{$path}}/ {
+						{{if $host.port}}
+							listen {{$host.port}};
+						{{end}}
 
-			proxy_set_header X-Real-IP $remote_addr;
-			proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-			proxy_set_header Host $http_host;
-			proxy_set_header X-NginX-Proxy true;
+						server_name {{$host.host}};
 
-			{{if $proxy.ssl   }}
-			proxy_redirect http:// https://;
-			{{ else }}
-			proxy_redirect off;
+						{{if $host.ssl}}
+							ssl_certificate           /etc/nginx/ssl/{{$host.sslCrt}};
+							ssl_certificate_key       /etc/nginx/ssl/{{$host.sslKey}};
+
+							ssl                       on;
+							ssl_session_cache         builtin:1000  shared:SSL:10m;
+							ssl_protocols             TLSv1 TLSv1.1 TLSv1.2;
+							ssl_ciphers               HIGH:!aNULL:!eNULL:!EXPORT:!CAMELLIA:!DES:!MD5:!PSK:!RC4;
+							ssl_prefer_server_ciphers on;
+						{{ end }}
+
+						{{if $host.path }}
+							{{range $path := $host.path}}
+								location {{$path}}/ {
+
+									proxy_set_header X-Real-IP $remote_addr;
+									proxy_set_header X-Forwarded-For $host_add_x_forwarded_for;
+									proxy_set_header Host $http_host;
+									proxy_set_header X-NginX-Proxy true;
+
+									{{if $host.ssl}}
+										proxy_redirect http:// https://;
+									{{ else }}
+										proxy_redirect off;
+									{{ end }}
+
+									{{if $host.webSocket}}
+										proxy_http_version 1.1;
+										proxy_set_header Upgrade $http_upgrade;
+										proxy_set_header Connection "upgrade";
+									{{ end }}
+
+									proxy_pass http://{{$data.portalIP}}:{{$data.port}};
+								}
+							{{ end }}
+
+							{{ if $host.defaultPath}}
+								location / {
+									rewrite ^/$ {{$host.defaultPath}}/ permanent;
+								}
+							{{ end }}
+						{{ else }}
+							location / {
+								proxy_set_header X-Real-IP       $remote_addr;
+								proxy_set_header X-Forwarded-For $host_add_x_forwarded_for;
+								proxy_set_header Host            $http_host;
+								proxy_set_header X-NginX-Proxy   true;
+
+								{{if $host.ssl   }}
+									proxy_redirect http:// https://;
+								{{ else }}
+									proxy_redirect off;
+								{{ end }}
+
+								{{if $host.webSocket   }}
+									proxy_http_version          1.1;
+									proxy_set_header Upgrade    $http_upgrade;
+									proxy_set_header Connection "upgrade";
+								{{ end }}
+
+								proxy_pass http://{{$data.portalIP}}:{{$data.port}};
+							}
+						{{ end }}
+
+					}
+				{{ end }}
+
 			{{ end }}
 
-			{{if $proxy.webSocket   }}
-			proxy_http_version 1.1;
-			proxy_set_header Upgrade $http_upgrade;
-			proxy_set_header Connection "upgrade";
-			{{ end }}
-
-			proxy_pass http://{{$data.portalIP}}:{{$data.port}};
-		}
 		{{ end }}
 
-		{{ if $proxy.defaultPath}}
-		location / {
-			rewrite ^/$ {{$proxy.defaultPath}}/ permanent;
-		}
-		{{ end }}
-		{{ else }}
-		location / {
-
-			proxy_set_header X-Real-IP $remote_addr;
-			proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-			proxy_set_header Host $http_host;
-			proxy_set_header X-NginX-Proxy true;
-
-			{{if $proxy.ssl   }}
-			proxy_redirect http:// https://;
-			{{ else }}
-			proxy_redirect off;
-			{{ end }}
-
-			{{if $proxy.webSocket   }}
-			proxy_http_version 1.1;
-			proxy_set_header Upgrade $http_upgrade;
-			proxy_set_header Connection "upgrade";
-			{{ end }}
-
-			proxy_pass http://{{$data.portalIP}}:{{$data.port}};
-		}
-		{{ end }}
-
-	}
-	{{ end }}
-	{{ end }}
-	{{ end }}
 	{{ end }}
 }
